@@ -41,6 +41,36 @@ Rows increase northward and columns eastward; plot with `origin="lower"`.
 The returned array has dtype `int16`, with 1 for shadow and 0 for illuminated
 pixels. Rays stop at the raster boundary, so terrain outside it is ignored.
 
+To calculate sun angles for a location and time, install the optional
+dependency with `python -m pip install pvlib`. With `cast_shadow` and your
+`height_image` loaded:
+
+```python
+import pandas as pd
+from pvlib.location import Location
+
+# Latitude/longitude in degrees; altitude in meters above sea level.
+location = Location(latitude=51.34, longitude=12.37,
+                    tz="Europe/Berlin", altitude=120)
+times = pd.DatetimeIndex(["2026-07-01 13:22:00"], tz=location.tz)
+sun = location.get_solarposition(times).iloc[0]
+
+azimuth = float(sun["azimuth"])
+elevation = float(sun["apparent_elevation"])
+
+if elevation > 0:
+    shadow = cast_shadow(height_image, pixel_size=10.0,
+                         azimuth=azimuth, elevation=elevation)
+else:
+    print("Sun is below the horizon; no direct sunlight.")
+```
+
+The timestamp includes its timezone explicitly. pvlib's `azimuth` uses the
+same clockwise-from-North convention as `cast_shadow`; `apparent_elevation`
+includes atmospheric refraction. Use `sun["elevation"]` instead for geometric
+elevation. See the [pvlib solar-position documentation](https://pvlib-python.readthedocs.io/en/stable/reference/generated/pvlib.solarposition.get_solarposition.html).
+This example uses one location's sun direction across the whole raster.
+
 Install `numpy`, `numba`, `tqdm`, and `matplotlib` in a Python environment
 with CUDA support. Run `python gpu-dem-shadow-casting.py` to generate the
 example arrays, then `python shadow_image.py` to render them.
