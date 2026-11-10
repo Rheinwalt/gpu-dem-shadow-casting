@@ -1,8 +1,8 @@
 # gpu-dem-shadow-casting
 Shadow ray casting for digital elevation models (raster data) using CUDA
 
-The kernel uses dominant-axis ray stepping from pixel centers toward the sun,
-as in `lab7.ipynb`. The first terrain sample above the ray casts a shadow.
+The kernel uses dominant-axis ray stepping from pixel centers toward the sun.
+The first terrain sample above the ray casts a shadow.
 
 ```python
 shadow = cast_shadow(height_image, pixel_size=10.0, azimuth=135, elevation=25)
@@ -40,11 +40,6 @@ Elevation values must lie between 0 and 90; pixels at 90 are illuminated.
 Rows increase northward and columns eastward; plot with `origin="lower"`.
 The returned array has dtype `int16`, with 1 for shadow and 0 for illuminated
 pixels. Rays stop at the raster boundary, so terrain outside it is ignored.
-
-This changes the previous angle convention. Convert old angles with
-`azimuth = (90 - old_azimuth) % 360` and
-`elevation = 90 - old_inclination`. The old minimum blocking thickness has
-been removed; even one blocking sample can now cast a shadow.
 
 Install `numpy`, `numba`, `tqdm`, and `matplotlib` in a Python environment
 with CUDA support. Run `python gpu-dem-shadow-casting.py` to generate the
