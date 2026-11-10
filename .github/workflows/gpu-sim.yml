@@ -1,0 +1,81 @@
+name: GPU Simulator
+
+# Optional, non-required check. tests/test_shadow.py says to run it with
+# NUMBA_ENABLE_CUDASIM=1 on machines without a GPU, and the hosted runners have
+# none. This runs the same tests with real PTX (no NUMBA_ENABLE_CUDASIM) on a
+# simulated NVIDIA H100 (https://github.com/pantheongpu/pantheonsim). A
+# simulator cannot reproduce hardware-specific behavior, races or real-device
+# precision, so it complements real-GPU testing and does not replace it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "gpu-dem-shadow-casting.py"
+      - "tests/**"
+      - ".github/workflows/gpu-sim.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cuda-tests:
+    name: CUDA tests (CUDA 13.0 and simulated H100)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      # Numba compiles the kernels to PTX with the toolkit's libNVVM, which it
+      # finds through CUDA_HOME.
+      - name: Set up the simulated GPU and CUDA toolkit
+        uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+
+      # numpy is kept below 2.5 because numba-cuda still uses np.row_stack.
+      - name: Install dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/venv/bin/python" -m pip install numba-cuda "numpy<2.5" tqdm pytest
+
+      - name: Check that the simulated GPU is visible
+        env:
+          CUDA_HOME: /usr/local/cuda-13.0
+        run: |
+          vgpu run "$RUNNER_TEMP/venv/bin/python" -c "from numba import cuda; assert cuda.is_available(); print(cuda.get_current_device().name)"
+
+      # NUMBA_ENABLE_CUDASIM is not set, so the kernels are compiled to PTX
+      # and run by the simulated H100.
+      - name: Run the tests
+        env:
+          CUDA_HOME: /usr/local/cuda-13.0
+        run: |
+          vgpu run "$RUNNER_TEMP/venv/bin/python" -m pytest -ra \
+            --junitxml="$RUNNER_TEMP/junit.xml" tests/test_shadow.py
+
+      # A skipped test would pass silently, so it counts as a failure here.
+      - name: Fail on skipped tests
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" - "$RUNNER_TEMP/junit.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse(sys.argv[1]).getroot()
+          if suite.tag == "testsuites":
+              suite = suite[0]
+          tests, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"{tests} tests, {skipped} skipped")
+          if tests == 0 or skipped:
+              sys.exit("tests were skipped or none ran: the simulated GPU was not used")
+          PY
